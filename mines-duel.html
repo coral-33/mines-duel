@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>双人对决 · 排雷积分</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <style>
+    /* ========== 变量与基础 ========== */
+    :root {
+      --bg-deep: #0d0f12;
+      --bg-mid: #151820;
+      --surface: #1c2028;
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #e8eaed;
+      --text-muted: #8b919a;
+      --accent-gold: #f59e0b;
+      --accent-gold-dim: rgba(245, 158, 11, 0.15);
+      --accent-emerald: #10b981;
+      --accent-emerald-dim: rgba(16, 185, 129, 0.12);
+      --accent-coral: #ef4444;
+      --player1-color: #f59e0b;
+      --player2-color: #10b981;
+      --shadow-inset: inset 0 2px 8px rgba(0, 0, 0, 0.45);
+      --radius: 10px;
+      --transition-fast: 0.18s ease;
+      /* 固定棋盘格尺寸（严格锁定） */
+      --cell-size: 32px;
+      --cell-gap: 4px;
+      --board-padding: 8px;
+      --board-size: calc(var(--cell-size) * 10 + var(--cell-gap) * 9 + var(--board-padding) * 2);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      font-size: 16px;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: "Noto Sans SC", system-ui, sans-serif;
+      color: var(--text);
+      min-height: 100vh;
+      background: var(--bg-deep);
+      background-image:
+        radial-gradient(ellipse 120% 80% at 50% -20%, rgba(245, 158, 11, 0.08), transparent 50%),
+        radial-gradient(ellipse 80% 50% at 100% 50%, rgba(16, 185, 129, 0.05), transparent 45%),
+        radial-gradient(ellipse 60% 40% at 0% 80%, rgba(239, 68, 68, 0.04), transparent 40%),
+        url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      background-attachment: fixed;
+      padding: clamp(12px, 3vw, 28px);
+      padding-bottom: max(24px, env(safe-area-inset-bottom));
+    }
+
+    .app {
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    /* ========== 标题 ========== */
+    .header {
+      text-align: center;
+      margin-bottom: 1.25rem;
+    }
+
+    .header h1 {
+      font-family: "Orbitron", sans-serif;
+      font-weight: 700;
+      font-size: clamp(1.35rem, 4.5vw, 1.75rem);
+      letter-spacing: 0.06em;
+      background: linear-gradient(135deg, var(--accent-gold) 0%, #fcd34d 50%, var(--accent-emerald) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      text-shadow: 0 0 40px rgba(245, 158, 11, 0.25);
+    }
+
+    .header p {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+    }
+
+    /* ========== 计分板 ========== */
+    .scoreboard {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 0.35rem;
+    }
+
+    @media (max-width: 420px) {
+      .scoreboard {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .player-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 3px 5px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    }
+
+    .player-card[data-player="0"] {
+      --p-color: var(--player1-color);
+      --p-dim: var(--accent-gold-dim);
+    }
+
+    .player-card[data-player="1"] {
+      --p-color: var(--player2-color);
+      --p-dim: var(--accent-emerald-dim);
+    }
+
+    .player-card.is-active {
+      border-color: color-mix(in srgb, var(--p-color) 55%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--p-color) 30%, transparent),
+        0 8px 24px rgba(0, 0, 0, 0.35);
+      background: linear-gradient(145deg, var(--p-dim), var(--surface));
+    }
+
+    .player-card__label {
+      font-size: 0.5rem;
+      font-weight: 600;
+      color: var(--p-color);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .name-input {
+      appearance: none;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.18);
+      color: var(--p-color);
+      border-radius: 999px;
+      padding: 3px 6px;
+      width: 4.6rem;
+      max-width: 100%;
+      font-size: 0.58rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      text-transform: none;
+      outline: none;
+      transition: box-shadow 0.18s ease, border-color 0.18s ease;
+    }
+
+    .name-input:focus {
+      border-color: color-mix(in srgb, var(--p-color) 55%, rgba(255, 255, 255, 0.18));
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--p-color) 22%, transparent);
+    }
+
+    .player-card__score {
+      font-family: "Orbitron", monospace;
+      font-size: clamp(0.64rem, 2.4vw, 0.84rem);
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.2;
+      margin: 1px 0 3px;
+    }
+
+    .turn-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.48rem;
+      font-weight: 600;
+      padding: 1px 5px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-muted);
+    }
+
+    .player-card.is-active .turn-badge {
+      background: color-mix(in srgb, var(--p-color) 22%, transparent);
+      color: var(--p-color);
+      animation: pulse-turn 1.8s ease-in-out infinite;
+    }
+
+    @keyframes pulse-turn {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.85; transform: scale(1.02); }
+    }
+
+    .turn-badge .dot {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: blink 1.2s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    /* ========== 棋盘 ========== */
+    .board-wrap {
+      display: flex;
+      justify-content: center;
+      margin-top: 12px; /* 与上方得分面板拉开距离，避免遮挡列号 */
+      margin-bottom: 1.2rem;
+    }
+
+    .board-area {
+      position: relative;
+      width: var(--board-size);
+      height: var(--board-size);
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(10, var(--cell-size));
+      grid-auto-rows: var(--cell-size);
+      gap: var(--cell-gap);
+      padding: var(--board-padding);
+      background: linear-gradient(160deg, #12151c, #0a0c10);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: var(--shadow-inset), 0 12px 40px rgba(0, 0, 0, 0.4);
+      position: absolute;
+      inset: 0;
+    }
+
+    .board.locked {
+      pointer-events: none;
+    }
+
+    .cell {
+      position: relative;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: linear-gradient(165deg, #252a33, #1a1e26);
+      box-shadow: var(--shadow-inset);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "Orbitron", monospace;
+      font-weight: 700;
+      font-size: clamp(0.55rem, 2.8vw, 0.95rem);
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      width: var(--cell-size);
+      height: var(--cell-size);
+      min-width: var(--cell-size);
+      min-height: var(--cell-size);
+      max-width: var(--cell-size);
+      max-height: var(--cell-size);
+      flex-shrink: 0;
+      transform: translateZ(0);
+    }
+
+    /* 只在“真鼠标 hover”设备上启用 hover 预览，避免移动端残留 hover 导致格子看起来变大 */
+    @media (hover: hover) and (pointer: fine) {
+      .cell:not(.revealed):not(.disabled):hover {
+        background: linear-gradient(165deg, #2e3540, #222830);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(245, 158, 11, 0.25);
+        /* 不做 scale，保证所有格子视觉尺寸始终一致 */
+        transform: none;
+        z-index: 1;
+      }
+    }
+
+    .cell.revealed {
+      cursor: default;
+      border-color: rgba(255, 255, 255, 0.04);
+    }
+
+    .cell.revealed.number {
+      background: rgba(20, 24, 30, 0.92);
+    }
+
+    /* 数字颜色：小数偏灰，大数偏亮/强调 */
+    .cell.revealed.number[data-val="1"],
+    .cell.revealed.number[data-val="2"],
+    .cell.revealed.number[data-val="3"] {
+      color: #6b7280;
+    }
+    .cell.revealed.number[data-val="4"],
+    .cell.revealed.number[data-val="5"],
+    .cell.revealed.number[data-val="6"] {
+      color: #9ca3af;
+    }
+    .cell.revealed.number[data-val="7"] {
+      color: #d1d5db;
+    }
+    .cell.revealed.number[data-val="8"] {
+      color: color-mix(in srgb, var(--accent-gold) 85%, #ffffff 15%);
+      text-shadow: 0 0 12px rgba(245, 158, 11, 0.30);
+    }
+    .cell.revealed.number[data-val="9"],
+    .cell.revealed.number[data-val="10"] {
+      color: var(--accent-gold);
+      text-shadow: 0 0 12px rgba(245, 158, 11, 0.35);
+    }
+
+    .cell.revealed.mine {
+      background: linear-gradient(145deg, #7f1d1d, #450a0a);
+      animation: mine-flash 0.5s ease;
+    }
+
+    @keyframes mine-flash {
+      0%, 100% { filter: brightness(1); }
+      25%, 75% { filter: brightness(1.4); background: #991b1b; }
+    }
+
+    .cell.shake {
+      animation: shake 0.45s ease;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translate(0, 0); }
+      20% { transform: translate(-3px, 2px); }
+      40% { transform: translate(3px, -2px); }
+      60% { transform: translate(-2px, -2px); }
+      80% { transform: translate(2px, 1px); }
+    }
+
+    .cell.flip-in {
+      animation: flip-in 0.35s ease forwards;
+    }
+
+    @keyframes flip-in {
+      0% { transform: scale(0.85) rotateY(-12deg); opacity: 0.6; }
+      100% { transform: scale(1) rotateY(0); opacity: 1; }
+    }
+
+    .cell .cell-inner {
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+
+    .cell.revealed .cell-inner {
+      opacity: 1;
+    }
+
+    .cell.revealed.mine .cell-inner {
+      font-size: clamp(0.7rem, 3.2vw, 1.1rem);
+    }
+
+    /* ========== 底部按钮 ========== */
+    .actions {
+      text-align: center;
+    }
+
+    .btn {
+      font-family: "Noto Sans SC", sans-serif;
+      font-weight: 600;
+      font-size: 0.95rem;
+      padding: 12px 28px;
+      border: none;
+      border-radius: 999px;
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--accent-gold), #d97706);
+      color: #0d0f12;
+      box-shadow: 0 4px 16px rgba(245, 158, 11, 0.35);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(245, 158, 11, 0.45);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    /* ========== 坐标标注层 ========== */
+    .coords-overlay {
+      position: absolute;
+      inset: 0;
+      border-radius: 12px;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    .coord-label {
+      position: absolute;
+      font-family: "Orbitron", monospace;
+      font-weight: 700;
+      font-size: 0.62rem;
+      color: rgba(232, 234, 237, 0.55);
+      background: rgba(10, 12, 16, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 2px 6px;
+      border-radius: 999px;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
+      user-select: none;
+    }
+
+    .coord-label.coord-col {
+      transform: translate(-50%, -108%);
+    }
+
+    .coord-label.coord-row {
+      transform: translate(-108%, -50%);
+    }
+
+    /* ========== 3轮后继续/结束：每个玩家卡片内的常驻面板 ========== */
+    .player-control {
+      margin-top: 4px;
+      padding: 3px 4px;
+      border-radius: 9px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(0, 0, 0, 0.18);
+      backdrop-filter: blur(6px);
+      min-height: 30px; /* 再缩小一档 */
+    }
+
+    .player-control.is-disabled {
+      opacity: 0.45;
+      filter: saturate(0.7);
+      pointer-events: none;
+    }
+
+    .player-control__top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .player-control__label {
+      font-family: "Orbitron", sans-serif;
+      font-size: 0.52rem;
+      letter-spacing: 0.03em;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .player-control__state {
+      font-family: "Orbitron", monospace;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      font-size: 0.52rem;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    .player-control__actions {
+      display: flex;
+      gap: 5px;
+      justify-content: space-between;
+    }
+
+    .player-control__btn {
+      flex: 1;
+      border: none;
+      cursor: pointer;
+      border-radius: 999px;
+      padding: 2px 4px;
+      font-weight: 900;
+      font-size: 0.5rem;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
+      color: #0d0f12;
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.95), #f59e0b);
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.25);
+    }
+
+    .player-control__btn.secondary {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.95), rgba(153, 27, 27, 0.95));
+      color: #0d0f12;
+    }
+
+    .player-control__btn:active {
+      transform: translateY(1px);
+    }
+
+    .player-control__btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+      box-shadow: none;
+    }
+
+    .player-control__hint {
+      margin-top: 4px;
+      color: var(--text-muted);
+      font-size: 0.5rem;
+      line-height: 1.25;
+      min-height: 1em; /* 预留，减少抖动 */
+    }
+
+    /* ========== 模态框 ========== */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 7, 10, 0.72);
+      backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.25s ease, visibility 0.25s ease;
+    }
+
+    .modal-overlay.is-open {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 24px;
+      max-width: 360px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+      transform: scale(0.92);
+      transition: transform 0.25s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .modal-overlay.is-open .modal {
+      transform: scale(1);
+    }
+
+    .modal__title {
+      font-family: "Orbitron", sans-serif;
+      font-size: 1.35rem;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+
+    .modal__emblem {
+      font-size: 2rem;
+      margin-bottom: 10px;
+      color: rgba(232, 234, 237, 0.85);
+      filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.35));
+      transform: translateZ(0);
+    }
+
+    @keyframes emblem-pop {
+      0% { transform: scale(0.85); filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.35)); opacity: 0.85; }
+      45% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(1); filter: drop-shadow(0 14px 34px rgba(0, 0, 0, 0.45)); }
+    }
+
+    .modal.is-win-gold .modal__emblem,
+    .modal.is-win-emerald .modal__emblem {
+      animation: emblem-pop 0.9s ease-out both;
+    }
+
+    .modal.is-tie .modal__emblem {
+      animation: emblem-pop 0.7s ease-out both;
+    }
+
+    .modal__burst {
+      position: absolute;
+      inset: -40px;
+      background:
+        radial-gradient(circle at 30% 20%, rgba(245, 158, 11, 0.35), transparent 45%),
+        radial-gradient(circle at 70% 40%, rgba(16, 185, 129, 0.30), transparent 45%),
+        radial-gradient(circle at 50% 80%, rgba(239, 68, 68, 0.22), transparent 55%);
+      opacity: 0.0;
+      transform: scale(0.85);
+      animation: none;
+      pointer-events: none;
+    }
+
+    @keyframes modal-burst {
+      0% { opacity: 0; transform: scale(0.85); filter: blur(0px); }
+      35% { opacity: 1; transform: scale(1.02); }
+      100% { opacity: 0; transform: scale(1.14); filter: blur(1px); }
+    }
+
+    .modal.is-win-gold .modal__burst {
+      animation: modal-burst 1.2s ease-out both;
+    }
+
+    .modal.is-win-emerald .modal__burst {
+      animation: modal-burst 1.2s ease-out both;
+      background:
+        radial-gradient(circle at 30% 20%, rgba(16, 185, 129, 0.36), transparent 45%),
+        radial-gradient(circle at 70% 40%, rgba(245, 158, 11, 0.22), transparent 45%),
+        radial-gradient(circle at 50% 80%, rgba(239, 68, 68, 0.18), transparent 55%);
+    }
+
+    .modal.is-tie .modal__burst {
+      animation: modal-burst 1.0s ease-out both;
+      background:
+        radial-gradient(circle at 35% 25%, rgba(232, 234, 237, 0.24), transparent 45%),
+        radial-gradient(circle at 70% 40%, rgba(245, 158, 11, 0.18), transparent 45%),
+        radial-gradient(circle at 50% 80%, rgba(16, 185, 129, 0.16), transparent 55%);
+    }
+
+    .modal.is-win-gold {
+      border-color: rgba(245, 158, 11, 0.35);
+    }
+
+    .modal.is-win-emerald {
+      border-color: rgba(16, 185, 129, 0.35);
+    }
+
+    .modal.is-win-gold,
+    .modal.is-win-emerald {
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.06),
+        0 28px 80px rgba(0, 0, 0, 0.6);
+    }
+
+    .modal.is-tie {
+      border-color: rgba(255, 255, 255, 0.14);
+    }
+
+    .modal__title {
+      animation: none;
+    }
+
+    .modal.is-win-gold .modal__title.win-gold,
+    .modal.is-win-emerald .modal__title.win-emerald {
+      animation: title-pop 1s ease-out both;
+    }
+
+    .modal.is-tie .modal__title.tie {
+      animation: title-pop 0.9s ease-out both;
+    }
+
+    @keyframes title-pop {
+      0% { transform: translateY(8px) scale(0.98); opacity: 0.0; }
+      60% { transform: translateY(0) scale(1.02); opacity: 1; }
+      100% { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    .modal__title.win-gold {
+      color: var(--accent-gold);
+    }
+    .modal__title.win-emerald {
+      color: var(--accent-emerald);
+    }
+    .modal__title.tie {
+      color: var(--text-muted);
+    }
+
+    .modal__scores {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      margin: 16px 0 20px;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .modal__scores strong {
+      display: block;
+      font-family: "Orbitron", monospace;
+      font-size: 1.5rem;
+      color: var(--text);
+      margin-top: 4px;
+    }
+
+    .modal__scores .p1 strong { color: var(--player1-color); }
+    .modal__scores .p2 strong { color: var(--player2-color); }
+
+    .modal .btn {
+      width: 100%;
+      max-width: 240px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1>双人对决 · 排雷积分</h1>
+      <p>轮流翻开格子 · 避开炸弹 · 累计高分</p>
+    </header>
+
+    <div class="scoreboard" id="scoreboard">
+      <div class="player-card is-active" data-player="0" id="card-p0">
+        <div class="player-card__label"><i class="fa-solid fa-user-astronaut"></i><input class="name-input" id="name-input-0" value="玩家 1" maxlength="8" /></div>
+        <div class="player-card__score" id="score-p0">0</div>
+        <div class="turn-badge" id="badge-p0"><span class="dot"></span>轮到你了</div>
+        <div class="player-control is-disabled" id="player-control-0">
+          <div class="player-control__top">
+            <div class="player-control__label">3轮后可控</div>
+            <div class="player-control__state" id="player-status-0">继续</div>
+          </div>
+          <div class="player-control__actions">
+            <button type="button" class="player-control__btn" id="btn-continue-0" disabled>继续</button>
+            <button type="button" class="player-control__btn secondary" id="btn-end-0" disabled>结束</button>
+          </div>
+          <div class="player-control__hint" id="player-hint-0">等待双方完成3轮安全格</div>
+        </div>
+      </div>
+      <div class="player-card" data-player="1" id="card-p1">
+        <div class="player-card__label"><i class="fa-solid fa-robot"></i><input class="name-input" id="name-input-1" value="玩家 2" maxlength="8" /></div>
+        <div class="player-card__score" id="score-p1">0</div>
+        <div class="turn-badge" id="badge-p1"><span class="dot"></span>等待中</div>
+        <div class="player-control is-disabled" id="player-control-1">
+          <div class="player-control__top">
+            <div class="player-control__label">3轮后可控</div>
+            <div class="player-control__state" id="player-status-1">继续</div>
+          </div>
+          <div class="player-control__actions">
+            <button type="button" class="player-control__btn" id="btn-continue-1" disabled>继续</button>
+            <button type="button" class="player-control__btn secondary" id="btn-end-1" disabled>结束</button>
+          </div>
+          <div class="player-control__hint" id="player-hint-1">等待双方完成3轮安全格</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="board-wrap">
+      <div class="board-area" id="board-area">
+        <div class="board" id="board" aria-label="10乘10 棋盘"></div>
+        <div class="coords-overlay" id="coords-overlay" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="btn" id="btn-restart">重新开始</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal" id="modal">
+      <div class="modal__burst" id="modal-burst" aria-hidden="true"></div>
+      <div class="modal__emblem" id="modal-emblem" aria-hidden="true"><i class="fa-solid fa-trophy"></i></div>
+      <h2 class="modal__title" id="modal-title">游戏结束</h2>
+      <div class="modal__scores" id="modal-scores"></div>
+      <button type="button" class="btn" id="modal-restart">重新开始</button>
+    </div>
+  </div>
+
+  <script>
+(function () {
+  "use strict";
+
+  // ========== 常量与配置 ==========
+  var ROWS = 10;
+  var COLS = 10;
+  /** 每行炸弹数量范围（含端点） */
+  var BOMBS_PER_ROW_MIN = 0;
+  var BOMBS_PER_ROW_MAX = 2;
+  /** 安全格数字 1~10 的权重：索引 0 对应数字 1，模拟小数多、大数少 */
+  var NUMBER_WEIGHTS = [
+    22, 20, 18, 12, 10, 8, 5, 7, 6, 4
+  ];
+
+  // ========== 游戏状态 ==========
+  var state = {
+    /** @type {Array<Array<{type:string,value:number,revealed:boolean}>>} */
+    board: [],
+    /** DOM 引用，便于直接更新，避免使用 children 索引 */
+    cellEls: [],
+    scores: [0, 0],
+    /** 每个玩家完成的安全格回合数（踩到炸弹不计入） */
+    safeTurns: [0, 0],
+    /** 0 = 玩家1, 1 = 玩家2 */
+    currentPlayer: 0,
+    /** 玩家是否可继续参与（3轮后可结束） */
+    playerCanPlay: [true, true],
+    /** 玩家是否已结束（结束后分数冻结，且不能再选择） */
+    playerEnded: [false, false],
+    /** 3轮后继续/结束功能是否开启 */
+    decisionPhase: { active: false, choices: [null, null] },
+    /** 仅在整局里触发一次“3轮后可继续/结束” */
+    decisionPhaseStarted: false,
+    gameOver: false,
+    /** 'playing' | 'mine' | 'cleared' */
+    endReason: "playing"
+  };
+
+  var boardEl = document.getElementById("board");
+  var coordsOverlay = document.getElementById("coords-overlay");
+  var card0 = document.getElementById("card-p0");
+  var card1 = document.getElementById("card-p1");
+  var scoreEls = [document.getElementById("score-p0"), document.getElementById("score-p1")];
+  var badgeEls = [document.getElementById("badge-p0"), document.getElementById("badge-p1")];
+  var nameInputs = [document.getElementById("name-input-0"), document.getElementById("name-input-1")];
+  var statePlayerNames = ["玩家 1", "玩家 2"];
+  var playerControls = [
+    {
+      root: document.getElementById("player-control-0"),
+      continueBtn: document.getElementById("btn-continue-0"),
+      endBtn: document.getElementById("btn-end-0"),
+      statusEl: document.getElementById("player-status-0"),
+      hintEl: document.getElementById("player-hint-0")
+    },
+    {
+      root: document.getElementById("player-control-1"),
+      continueBtn: document.getElementById("btn-continue-1"),
+      endBtn: document.getElementById("btn-end-1"),
+      statusEl: document.getElementById("player-status-1"),
+      hintEl: document.getElementById("player-hint-1")
+    }
+  ];
+  var modalEl = document.getElementById("modal");
+  var modalOverlay = document.getElementById("modal-overlay");
+  var modalTitle = document.getElementById("modal-title");
+  var modalScores = document.getElementById("modal-scores");
+  var modalEmblem = document.getElementById("modal-emblem");
+
+  // 音效：使用 WebAudio 生成简单音色（不依赖外部音频资源）
+  var audioCtx = null;
+  function ensureAudio() {
+    if (audioCtx) return;
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    audioCtx = new Ctx();
+  }
+
+  function playSoundBigNumber() {
+    if (!audioCtx) return;
+    var now = audioCtx.currentTime;
+    // 小上扬音色：模拟“高分提示”
+    var osc1 = audioCtx.createOscillator();
+    var osc2 = audioCtx.createOscillator();
+    var gain = audioCtx.createGain();
+    osc1.type = "triangle";
+    osc2.type = "sine";
+    osc1.frequency.value = 740;
+    osc2.frequency.value = 980;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.20, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+    osc1.connect(gain);
+    osc2.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc1.start(now);
+    osc2.start(now + 0.01);
+    osc1.stop(now + 0.22);
+    osc2.stop(now + 0.22);
+  }
+
+  function playSoundMine() {
+    if (!audioCtx) return;
+    var now = audioCtx.currentTime;
+    // 爆炸感：噪声 + 低频冲击
+    var bufferSize = Math.floor(audioCtx.sampleRate * 0.22);
+    var buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    var data = buffer.getChannelData(0);
+    for (var i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+    }
+    var source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    var filter = audioCtx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.value = 220;
+    filter.Q.value = 0.9;
+    var gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.65, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    var osc = audioCtx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.value = 95;
+    var oscGain = audioCtx.createGain();
+    oscGain.gain.setValueAtTime(0.0001, now);
+    oscGain.gain.exponentialRampToValueAtTime(0.35, now + 0.01);
+    oscGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+    osc.connect(oscGain);
+    oscGain.connect(audioCtx.destination);
+
+    source.start(now);
+    source.stop(now + 0.24);
+    osc.start(now);
+    osc.stop(now + 0.14);
+  }
+
+  /**
+   * 按权重从 1~10 中随机选一个数字
+   */
+  function pickWeightedNumber() {
+    var total = 0;
+    var i;
+    for (i = 0; i < NUMBER_WEIGHTS.length; i++) total += NUMBER_WEIGHTS[i];
+    // 使用整数随机，避免浮点边界误差
+    var r = Math.floor(Math.random() * total);
+    var acc = 0;
+    for (i = 0; i < NUMBER_WEIGHTS.length; i++) {
+      acc += NUMBER_WEIGHTS[i];
+      if (r < acc) return i + 1;
+    }
+    return 10;
+  }
+
+  /**
+   * 生成整盘棋盘：每行 0~2 个炸弹随机列位，其余格为加权随机 1~10
+   */
+  function generateBoard() {
+    var board = [];
+    var r, c;
+    for (r = 0; r < ROWS; r++) {
+      var row = [];
+      var bombCount = BOMBS_PER_ROW_MIN + Math.floor(Math.random() * (BOMBS_PER_ROW_MAX - BOMBS_PER_ROW_MIN + 1));
+      var cols = [];
+      while (cols.length < bombCount) {
+        var col = Math.floor(Math.random() * COLS);
+        if (cols.indexOf(col) === -1) cols.push(col);
+      }
+      for (c = 0; c < COLS; c++) {
+        if (cols.indexOf(c) !== -1) {
+          row.push({ type: "mine", value: 0, revealed: false });
+        } else {
+          row.push({ type: "number", value: pickWeightedNumber(), revealed: false });
+        }
+      }
+      board.push(row);
+    }
+    return board;
+  }
+
+  /**
+   * 统计未揭示的安全格数量
+   */
+  function countUnrevealedSafe() {
+    var n = 0;
+    var r, c;
+    for (r = 0; r < ROWS; r++) {
+      for (c = 0; c < COLS; c++) {
+        if (state.board[r][c].type === "number" && !state.board[r][c].revealed) n++;
+      }
+    }
+    return n;
+  }
+
+  function renderScores() {
+    scoreEls[0].textContent = String(state.scores[0]);
+    scoreEls[1].textContent = String(state.scores[1]);
+  }
+
+  function renderTurnIndicator() {
+    var p = state.currentPlayer;
+    card0.classList.toggle("is-active", p === 0);
+    card1.classList.toggle("is-active", p === 1);
+    badgeEls[0].innerHTML = p === 0 ? '<span class="dot"></span>轮到你了' : '<span class="dot"></span>等待中';
+    badgeEls[1].innerHTML = p === 1 ? '<span class="dot"></span>轮到你了' : '<span class="dot"></span>等待中';
+  }
+
+  function createCellElement(r, c) {
+    var cell = state.board[r][c];
+    var div = document.createElement("div");
+    div.className = "cell";
+    div.dataset.r = String(r);
+    div.dataset.c = String(c);
+    var inner = document.createElement("span");
+    inner.className = "cell-inner";
+    if (cell.revealed) {
+      div.classList.add("revealed");
+      if (cell.type === "mine") {
+        div.classList.add("mine");
+        inner.innerHTML = '<i class="fa-solid fa-bomb" aria-hidden="true"></i>';
+      } else {
+        div.classList.add("number");
+        div.dataset.val = String(cell.value);
+        inner.textContent = String(cell.value);
+      }
+    }
+    div.appendChild(inner);
+    return div;
+  }
+
+  function clearCoordsLabels() {
+    coordsOverlay.innerHTML = "";
+  }
+
+  function renderCoordsLabels() {
+    clearCoordsLabels();
+    if (!state.cellEls || !state.cellEls[0]) return;
+    var boardRect = boardEl.getBoundingClientRect();
+    if (!boardRect.width || !boardRect.height) return;
+    // 列号：用第一行的格子中心对齐
+    var r0Cell;
+    for (var c = 0; c < COLS; c++) {
+      r0Cell = state.cellEls[0][c];
+      if (!r0Cell) continue;
+      var rect = r0Cell.getBoundingClientRect();
+      var x = rect.left + rect.width / 2 - boardRect.left;
+      var y = rect.top - boardRect.top; // 顶边作为放置基准
+      var lab = document.createElement("div");
+      lab.className = "coord-label coord-col";
+      lab.textContent = String(c + 1);
+      lab.style.left = x + "px";
+      lab.style.top = y + "px";
+      coordsOverlay.appendChild(lab);
+    }
+    // 行号：用第一列的格子中心对齐
+    for (var r = 0; r < ROWS; r++) {
+      var cellL = state.cellEls[r][0];
+      if (!cellL) continue;
+      var rect2 = cellL.getBoundingClientRect();
+      var cx = rect2.left - boardRect.left;
+      var cy = rect2.top + rect2.height / 2 - boardRect.top;
+      var lab2 = document.createElement("div");
+      lab2.className = "coord-label coord-row";
+      lab2.textContent = String(r + 1);
+      lab2.style.left = cx + "px";
+      lab2.style.top = cy + "px";
+      coordsOverlay.appendChild(lab2);
+    }
+  }
+
+  function renderBoard() {
+    boardEl.innerHTML = "";
+    state.cellEls = [];
+    var r, c;
+    for (r = 0; r < ROWS; r++) {
+      state.cellEls[r] = [];
+      for (c = 0; c < COLS; c++) {
+        var cellDiv = createCellElement(r, c);
+        state.cellEls[r][c] = cellDiv;
+        boardEl.appendChild(cellDiv);
+      }
+    }
+    // 坐标标注依赖布局尺寸，交给下一帧计算
+    window.requestAnimationFrame(renderCoordsLabels);
+  }
+
+  /**
+   * 胜负与结算展示（内嵌模态框）
+   */
+  function showEndModal(titleText, titleClass, winnerIndex) {
+    modalTitle.textContent = titleText;
+    modalTitle.className = "modal__title " + (titleClass || "");
+    var s0 = state.scores[0];
+    var s1 = state.scores[1];
+    modalScores.innerHTML =
+      '<div class="p1">' + statePlayerNames[0] + '<br><strong>' + s0 + "</strong></div>" +
+      '<div class="p2">' + statePlayerNames[1] + '<br><strong>' + s1 + "</strong></div>";
+    modalEl.classList.remove("is-win-gold", "is-win-emerald", "is-tie");
+    if (titleClass === "win-gold") modalEl.classList.add("is-win-gold");
+    if (titleClass === "win-emerald") modalEl.classList.add("is-win-emerald");
+    if (titleClass === "tie") modalEl.classList.add("is-tie");
+    // 设置奖章图标
+    if (titleClass === "win-gold") {
+      modalEmblem.innerHTML = '<i class="fa-solid fa-crown"></i>';
+    } else if (titleClass === "win-emerald") {
+      modalEmblem.innerHTML = '<i class="fa-solid fa-leaf"></i>';
+    } else if (titleClass === "tie") {
+      modalEmblem.innerHTML = '<i class="fa-solid fa-scale-balanced"></i>';
+    } else {
+      modalEmblem.innerHTML = '<i class="fa-solid fa-trophy"></i>';
+    }
+    modalOverlay.classList.add("is-open");
+  }
+
+  function hideModal() {
+    modalOverlay.classList.remove("is-open");
+  }
+
+  /**
+   * 检查是否所有安全格已揭示（无人踩雷时）
+   */
+  function checkAllSafeRevealed() {
+    return countUnrevealedSafe() === 0;
+  }
+
+  /**
+   * 安全格全部揭开后的分数比较
+   */
+  function resolveScoreWin() {
+    state.gameOver = true;
+    state.endReason = "cleared";
+    var s0 = state.scores[0];
+    var s1 = state.scores[1];
+    if (s0 > s1) {
+      showEndModal(statePlayerNames[0] + " 获胜！", "win-gold", 0);
+    } else if (s1 > s0) {
+      showEndModal(statePlayerNames[1] + " 获胜！", "win-emerald", 1);
+    } else {
+      showEndModal("平局", "tie", -1);
+    }
+  }
+
+  function switchPlayer() {
+    state.currentPlayer = 1 - state.currentPlayer;
+  }
+
+  function setDecisionBarOpen(open) {
+    // 已移除底部 decision-bar，不再需要该逻辑（保留占位避免旧调用报错）
+  }
+
+  function updateDecisionChoiceUI() {
+    // 已移除旧的选择流程（保留占位）
+  }
+
+  function syncTurnToActivePlayer() {
+    if (state.gameOver) return;
+    // 若有已结束玩家，跳过他们的回合
+    var safety = 0;
+    while (safety < 4 && state.playerCanPlay[state.currentPlayer] === false) {
+      state.currentPlayer = 1 - state.currentPlayer;
+      safety++;
+    }
+  }
+
+  function renderDecisionControls() {
+    // 规则：当双方完成 3 轮安全格后，两个玩家的继续/结束按钮解灰；
+    // 选择“结束”后，该玩家分数冻结并不再参与后续，也不能再继续选择。
+    var enabled = state.decisionPhaseStarted;
+    for (var p = 0; p < 2; p++) {
+      var ctrl = playerControls[p];
+      if (!ctrl || !ctrl.root) continue;
+      ctrl.root.classList.toggle("is-disabled", !enabled);
+      if (ctrl.continueBtn) ctrl.continueBtn.disabled = !enabled || state.playerEnded[p];
+      if (ctrl.endBtn) ctrl.endBtn.disabled = !enabled || state.playerEnded[p];
+      if (ctrl.statusEl) {
+        ctrl.statusEl.textContent = state.playerEnded[p] ? "已结束" : "继续";
+      }
+      if (ctrl.hintEl) {
+        if (!enabled) {
+          ctrl.hintEl.textContent = "等待双方完成3轮安全格";
+        } else if (state.playerEnded[p]) {
+          ctrl.hintEl.textContent = "该玩家已结束，分数已冻结";
+        } else {
+          ctrl.hintEl.textContent = "可继续或选择结束（结束后不可恢复）";
+        }
+      }
+    }
+  }
+
+  function startDecisionPhaseIfNeeded() {
+    if (state.decisionPhaseStarted) return;
+    if (state.safeTurns[0] >= 3 && state.safeTurns[1] >= 3) {
+      state.decisionPhaseStarted = true;
+      // 默认继续；玩家可通过卡片面板选择继续或结束
+      renderDecisionControls();
+    }
+  }
+
+  /**
+   * 更新单个格子的 DOM（揭示后）
+   */
+  function updateCellDOM(r, c) {
+    var cell = state.board[r][c];
+    var div = state.cellEls && state.cellEls[r] && state.cellEls[r][c];
+    if (!div) return;
+    // 保留其它动画/状态 class（例如雷击时的 shake），避免 className 覆盖导致动画丢失
+    div.classList.add("revealed", "flip-in");
+    div.classList.remove("mine", "number");
+    if (cell.type === "mine") {
+      div.classList.add("mine");
+      div.removeAttribute("data-val");
+      div.querySelector(".cell-inner").innerHTML = '<i class="fa-solid fa-bomb" aria-hidden="true"></i>';
+    } else {
+      div.classList.add("number");
+      div.dataset.val = String(cell.value);
+      div.querySelector(".cell-inner").textContent = String(cell.value);
+    }
+    window.setTimeout(function () {
+      div.classList.remove("flip-in");
+    }, 400);
+  }
+
+  function handleCellClick(ev) {
+    var target = ev.target.closest(".cell");
+    if (!target || state.gameOver) return;
+    var r = parseInt(target.dataset.r, 10);
+    var c = parseInt(target.dataset.c, 10);
+    var cell = state.board[r][c];
+    if (cell.revealed) return;
+
+    var cp = state.currentPlayer;
+    // 若玩家已结束，则会在此被跳过，无法继续操作
+    syncTurnToActivePlayer();
+    cp = state.currentPlayer;
+    if (!state.playerCanPlay[cp]) return;
+
+    ensureAudio();
+    cell.revealed = true;
+
+    if (cell.type === "mine") {
+      // 踩雷：该玩家分数清零，对方获胜；棋盘短暂锁定
+      state.scores[cp] = 0;
+      boardEl.classList.add("locked");
+      target.classList.add("shake");
+      playSoundMine();
+      renderScores();
+      updateCellDOM(r, c);
+
+      window.setTimeout(function () {
+        state.gameOver = true;
+        state.endReason = "mine";
+        var winner = 1 - cp;
+        var title = winner === 0
+          ? statePlayerNames[0] + " 获胜！（对方踩雷）"
+          : statePlayerNames[1] + " 获胜！（对方踩雷）";
+        var cls = winner === 0 ? "win-gold" : "win-emerald";
+        showEndModal(title, cls, winner);
+        boardEl.classList.remove("locked");
+        target.classList.remove("shake");
+      }, 500);
+      return;
+    }
+
+    // 数字：加分、翻牌动画、换边
+    state.scores[cp] += cell.value;
+    // 大数字提示音（8、9、10）
+    if (cell.value >= 8) playSoundBigNumber();
+    state.safeTurns[cp] += 1;
+    renderScores();
+    updateCellDOM(r, c);
+
+    if (checkAllSafeRevealed()) {
+      resolveScoreWin();
+      return;
+    }
+
+    switchPlayer();
+    // 若有玩家已结束，则自动跳过到可继续的一方
+    syncTurnToActivePlayer();
+    renderTurnIndicator();
+    startDecisionPhaseIfNeeded();
+  }
+
+  function resetGame() {
+    state.board = generateBoard();
+    state.cellEls = [];
+    state.scores = [0, 0];
+    state.safeTurns = [0, 0];
+    state.currentPlayer = 0;
+    state.gameOver = false;
+    state.endReason = "playing";
+    state.playerCanPlay = [true, true];
+    state.playerEnded = [false, false];
+    state.decisionPhaseStarted = false;
+    state.decisionPhase.active = false;
+    state.decisionPhase.choices = [null, null];
+    boardEl.classList.remove("locked");
+    renderScores();
+    renderTurnIndicator();
+    renderBoard();
+    renderDecisionControls();
+    hideModal();
+  }
+
+  function init() {
+    // 名称输入同步到 statePlayerNames
+    nameInputs[0].addEventListener("input", function () {
+      statePlayerNames[0] = (nameInputs[0].value || "").trim() || "玩家 1";
+    });
+    nameInputs[1].addEventListener("input", function () {
+      statePlayerNames[1] = (nameInputs[1].value || "").trim() || "玩家 2";
+    });
+    resetGame();
+    boardEl.addEventListener("click", handleCellClick);
+    document.getElementById("btn-restart").addEventListener("click", resetGame);
+    document.getElementById("modal-restart").addEventListener("click", resetGame);
+    function bindDecisionControls(playerIndex) {
+      var ctrl = playerControls[playerIndex];
+      if (!ctrl) return;
+
+      if (ctrl.continueBtn) {
+        ctrl.continueBtn.addEventListener("click", function () {
+          if (!state.decisionPhaseStarted || state.gameOver) return;
+          if (state.playerEnded[playerIndex]) return;
+          state.playerCanPlay[playerIndex] = true;
+          renderDecisionControls();
+          // 如果当前是该玩家回合，继续状态会直接生效
+          renderTurnIndicator();
+        });
+      }
+
+      if (ctrl.endBtn) {
+        ctrl.endBtn.addEventListener("click", function () {
+          if (!state.decisionPhaseStarted || state.gameOver) return;
+          if (state.playerEnded[playerIndex]) return;
+          // 结束：分数冻结，不再参与后续回合，也不允许再次选择
+          state.playerEnded[playerIndex] = true;
+          state.playerCanPlay[playerIndex] = false;
+          renderDecisionControls();
+          // 若刚好轮到该玩家，则立刻跳过到可操作的一方
+          syncTurnToActivePlayer();
+          renderTurnIndicator();
+          // 双方都结束时立即按当前分数结算
+          if (state.playerEnded[0] && state.playerEnded[1] && !state.gameOver) {
+            resolveScoreWin();
+          }
+        });
+      }
+    }
+
+    bindDecisionControls(0);
+    bindDecisionControls(1);
+
+    modalOverlay.addEventListener("click", function (e) {
+      if (e.target === modalOverlay) hideModal();
+    });
+
+    // 处理移动端旋转/尺寸变化，重新计算坐标标注位置
+    window.addEventListener("resize", function () {
+      if (!state.gameOver && state.cellEls && state.cellEls[0]) {
+        window.requestAnimationFrame(renderCoordsLabels);
+      }
+    });
+  }
+
+  init();
+})();
+  </script>
+</body>
+</html>
